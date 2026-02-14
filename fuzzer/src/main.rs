@@ -45,6 +45,8 @@ struct Args {
 	jqf: analysis::JQFLevel,
 	fuzz_server_id: String,
 	seed_cycles: usize,
+	max_entries: usize,
+	max_children: u64,
 }
 
 fn main() {
@@ -79,6 +81,16 @@ fn main() {
 			.help("The starting seed consits of all zeros for N cycles.")
 			.takes_value(true)
 			.default_value("5"))
+		.arg(Arg::with_name("max_entries")
+			.long("max-entries")
+			.help("Maximum number of queue entries to fuzz before exiting.")
+			.takes_value(true)
+			.default_value("1000000"))
+		.arg(Arg::with_name("max_children")
+			.long("max-children")
+			.help("Maximum number of mutated children to generate per queue entry.")
+			.takes_value(true)
+			.default_value("100000"))
 		.arg(Arg::with_name("input_directory")
 			.long("input-directory").short("i").value_name("DIR")
 			.takes_value(true)
@@ -110,6 +122,8 @@ fn main() {
 		jqf: analysis::JQFLevel::from_arg(matches.value_of("jqf_level").unwrap()),
 		fuzz_server_id: matches.value_of("fuzz_server_id").unwrap().to_string(),
 		seed_cycles: matches.value_of("seed_cycles").unwrap().parse::<usize>().unwrap(),
+		max_entries: matches.value_of("max_entries").unwrap().parse::<usize>().unwrap(),
+		max_children: matches.value_of("max_children").unwrap().parse::<u64>().unwrap(),
 	};
 
 	// "Ctrl + C" handling
@@ -198,9 +212,13 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 		statistics.take_snapshot(),
 		&seed_coverage);
 
-	let max_entries = 1_000_000;
-	let max_children = 100_000;	// TODO: better mechanism to determine length of the havoc stage
-	println!("fuzzing a maximum of {} queue entries", max_entries);
+	let max_entries = args.max_entries;
+	let max_children = args.max_children;	// TODO: better mechanism to determine length of the havoc stage
+	println!(
+		"fuzzing a maximum of {} queue entries ({} children per entry)",
+		max_entries,
+		max_children
+	);
 
 	for _ in 0..max_entries {
 		let active_test = q.get_next_test();

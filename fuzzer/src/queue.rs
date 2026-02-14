@@ -126,10 +126,8 @@ impl Queue {
 	pub fn add_new_test(&mut self, inputs: &[u8], mutation: MutationInfo,
 	                    new_cov: Vec<usize>, is_valid: bool, ts: Duration,
 	                    stats: stats::Snapshot, trace_bits: &[u8]) {
-		assert!(self.active_entry.is_some());
 		let id = EntryId(self.entries.len() as u32);
-		let lineage = if let Some(parent) = self.active_entry {
-			Some(Lineage { parent, mutation }) } else { None };
+		let lineage = self.active_entry.map(|parent| Lineage { parent, mutation });
 		let after = ts - self.start_ts;
 		let entry = InternalEntry::from_mutation(id, inputs, lineage, after, new_cov, is_valid);
 		Queue::save_to_working_dir(&self.working_dir, &entry, stats, trace_bits);

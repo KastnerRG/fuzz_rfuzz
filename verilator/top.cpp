@@ -27,7 +27,7 @@
 // Override Verilator definition so first $finish ends simulation
 // Note: VL_USER_FINISH needs to be defined when compiling Verilator code
 void vl_finish(const char* filename, int linenum, const char* hier) {
-	Verilated::flushCall();
+	Verilated::runFlushCallbacks();
 	exit(0);
 }
 
@@ -184,4 +184,3 @@ int main(int argc, char** argv) {
 	if (sim.tfp) { sim.tfp->close(); }
 #endif
 }
-

@@ -10,11 +10,12 @@ OptLevel = '-O3'
 CFlags = [OptLevel, '-DVL_USER_FINISH']
 Verilator = ['verilator', '--cc']
 DefaultFlags = ['--assert', '-Wno-fatal', '-Wno-WIDTH', '-Wno-STMTDLY',
-                OptLevel, '-CFLAGS', '"{}"'.format(' '.join(CFlags))]
+                '--output-split', '0', OptLevel, '-CFLAGS', '"{}"'.format(' '.join(CFlags))]
 VerilatorIncluder = os.path.join('bin', 'verilator_includer')
 # File Prediction Settings
 GeneratedFiles = ['V{}_classes.mk', 'V{}.cpp', 'V{}.h', 'V{}.mk',
-                  'V{}__Syms.cpp', 'V{}__Syms.h', 'V{}__ver.d', 'V{}__verFiles.dat']
+                  'V{}__Syms.cpp', 'V{}__Slow.cpp', 'V{}__Syms.h',
+                  'V{}__ver.d', 'V{}__verFiles.dat']
 MaybeGeneratedFiles = ['V{}__Inlines.h']
 GeneratedTraceFiles = ['V{}__Trace.cpp', 'V{}__Trace__Slow.cpp']
 # Some Magic Library Files

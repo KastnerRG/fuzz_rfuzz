@@ -106,7 +106,7 @@ bool FPGAQueueFuzzer::acquire_buffer() {
 }
 void FPGAQueueFuzzer::release_buffer() {
 	// release in reverse order
-	if(coverage_out_id > 0 && test_in_id > 0) {
+	if(coverage_out_id >= 0 && test_in_id >= 0) {
 		command_pipe->push(coverage_out_id, test_in_id);
 		// reset buffer state
 		coverage_out_id = -1;
