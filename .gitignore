@@ -16,3 +16,7 @@ __pycache__/
 
 # IntelliJ Idea
 .idea/
+
+fuzzer/example*
+harness/dumps/
+instrumentation/dumps/
