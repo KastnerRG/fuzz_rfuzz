@@ -1,4 +1,4 @@
-project('fuzz-server', 'cpp', default_options : ['cpp_std=c++11'], version: '0.0.1')
+project('fuzz-server', 'cpp', default_options : ['cpp_std=c++14'], version: '0.0.1')
 
 
 # generate verilator
@@ -30,7 +30,7 @@ verilator_files = ['V@0@.h'.format(toplevel),
                    #'V@0@__Inlines.h'.format(toplevel),
                    'V@0@.cpp'.format(toplevel),
                    'V@0@__Syms.cpp'.format(toplevel),
-                   'verilated_vcd_c.cpp', 'verilated.cpp']
+                   'verilated_vcd_c.cpp', 'verilated.cpp', 'verilated_threads.cpp']
 if get_option('trace')
 	verilator_cmd = [verilator_py, '--trace']
 	verilator_defines += ['-DVM_TRACE=1']

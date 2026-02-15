@@ -27,11 +27,14 @@
 // Override Verilator definition so first $finish ends simulation
 // Note: VL_USER_FINISH needs to be defined when compiling Verilator code
 void vl_finish(const char* filename, int linenum, const char* hier) {
-	Verilated::flushCall();
+	(void)filename;
+	(void)linenum;
+	(void)hier;
 	exit(0);
 }
 
 using namespace std;
+static vluint64_t g_sc_time = 0;
 
 struct Simulation {
 	TOP_TYPE* top = nullptr;
@@ -39,12 +42,14 @@ struct Simulation {
 	VerilatedVcdC* tfp = nullptr;
 	void step() {
 		top->clock = 0;
+		g_sc_time = main_time;
 		top->eval();
 		#if VM_TRACE
 		if (tfp) { tfp->dump(main_time); }
 		#endif
 		main_time++;
 		top->clock = 1;
+		g_sc_time = main_time;
 		top->eval();
 		#if VM_TRACE
 		if (tfp) { tfp->dump(main_time); }
@@ -142,10 +147,7 @@ public:
 ActiveFuzzer fuzzer;
 
 double sc_time_stamp () {
-	std::cerr << "❌ seems like something went wrong! ❌" << std::endl;
-	std::cerr << "🐟🐟 test inputs: 🐟🐟" << std::endl;
-	fuzzer.print_active_test();
-	throw std::logic_error("calling sc_time_stamp is not supported!");
+	return static_cast<double>(g_sc_time);
 }
 int main(int argc, char** argv) {
 	std::string instance_id = "0";
@@ -184,4 +186,3 @@ int main(int argc, char** argv) {
 	if (sim.tfp) { sim.tfp->close(); }
 #endif
 }
-

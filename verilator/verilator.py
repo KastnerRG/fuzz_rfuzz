@@ -19,7 +19,7 @@ MaybeGeneratedFiles = ['V{}__Inlines.h']
 GeneratedTraceFiles = ['V{}__Trace.cpp', 'V{}__Trace__Slow.cpp']
 # Some Magic Library Files
 VerilatorLibPath = 'include'
-VerilatorLibFiles = ['verilated_vcd_c.cpp', 'verilated.cpp']
+VerilatorLibFiles = ['verilated_vcd_c.cpp', 'verilated.cpp', 'verilated_threads.cpp']
 
 ################################################################################
 
@@ -30,11 +30,6 @@ def check_file_predictions(toplevel, trace, out):
 	missing = expected - produced
 	if len(missing) > 0:
 		sys.stderr.write("expected files were not generated: {}\n".format(missing))
-		sys.exit(1)
-	maybe_expexted = { ff.format(toplevel) for ff in MaybeGeneratedFiles }
-	not_expected = produced - (expected | maybe_expexted)
-	if len(not_expected) > 0:
-		sys.stderr.write("unexpected files were generated: {}\n".format(not_expected))
 		sys.exit(1)
 	return produced
 
@@ -105,6 +100,22 @@ if __name__ == '__main__':
 		sys.exit(r.returncode)
 	produced = check_file_predictions(toplevel=toplevel, trace=args.trace, out=out)
 
+	# Meson compiles a fixed source list. Verilator may emit split model .cpp
+	# files depending on version/settings; fold them into the top cpp.
+	top_cpp = 'V{}.cpp'.format(toplevel)
+	syms_cpp = 'V{}__Syms.cpp'.format(toplevel)
+	extra_model_cpp = sorted(
+		ff for ff in produced
+		if ff.endswith('.cpp')
+		and ff.startswith('V{}'.format(toplevel))
+		and ff not in {top_cpp, syms_cpp}
+	)
+	if len(extra_model_cpp) > 0:
+		with open(os.path.join(out, top_cpp), 'a') as f:
+			f.write('\n// Appended split Verilator translation units for compatibility.\n')
+			for ff in extra_model_cpp:
+				f.write('#include "{}"\n'.format(ff))
+
 	if args.print_out:
 		ff = [os.path.join(out, ff) for ff in produced if ff.endswith('.cpp')]
 		print('\n'.join(ff))
@@ -127,3 +138,13 @@ if __name__ == '__main__':
 			shutil.move(src=os.path.join(out, name), dst=dst)
 		else:
 			shutil.copyfile(src=os.path.join(root, VerilatorLibPath, name), dst=dst)
+
+	# Newer Verilator versions may emit additional generated headers/sources
+	# (e.g. *__pch.h, *__root*.{h,cpp}) that are included by requested files.
+	# Copy them alongside requested outputs when all outputs share one directory.
+	output_dirs = {os.path.dirname(path) for path in output_files.values()}
+	if len(output_dirs) == 1:
+		extra_dst = next(iter(output_dirs))
+		for name in produced - set(output_files.keys()):
+			if name.endswith('.h') or name.endswith('.cpp'):
+				shutil.copyfile(src=os.path.join(out, name), dst=os.path.join(extra_dst, name))

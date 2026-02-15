@@ -1,3 +1,8 @@
+fuzzer/all_rfuzz*
+fuzzer/example*
+harness/dumps/
+instrumentation/dumps/
+
 build/
 .ivy2
 *.stamp
