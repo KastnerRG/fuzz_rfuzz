@@ -27,6 +27,7 @@ impl Entry {
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct EntryId(u32);
+impl EntryId { pub fn index(&self) -> usize { self.0 as usize } }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Lineage {

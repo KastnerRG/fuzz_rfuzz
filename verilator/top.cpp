@@ -11,6 +11,7 @@
 
 
 #include "dut.hpp"
+#include "../../../../experiments/fpga_fuzzers_certitude/fuzzers/server/recorder.hpp"
 
 
 #include <verilated.h>
@@ -61,7 +62,9 @@ struct Simulation {
 
 const uint8_t ResetInput[InputSize] = { 0 };
 
+static InputRecorder recorder(InputSize, CoverageSize);
 static inline void run_test(Simulation& sim, Fuzzer& fuzzer) {
+	recorder.start();
 	// apply deterministic inputs during reset
 	apply_input(sim.top, ResetInput);
 	// meta reset circuit for one cycle
@@ -75,12 +78,14 @@ static inline void run_test(Simulation& sim, Fuzzer& fuzzer) {
 	// run for as many cycles as we get data
 	uint8_t input[InputSize];
 	while(fuzzer.pop(input, InputSize)) {
+		recorder.cycle(input);
 		apply_input(sim.top, input);
 		sim.step();
 	}
 	uint8_t coverage[CoverageSize];
 	read_coverage(sim.top, coverage);
 	fuzzer.push(coverage, CoverageSize);
+	recorder.end(coverage);
 }
 
 static inline void print_header() {

@@ -14,6 +14,7 @@ use clap::{Arg, App};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::io::Write;
 
 mod config;
 mod run;
@@ -163,6 +164,9 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 	//println!("ranges:]\n{:?}", ranges);
 	let mut analysis = analysis::Analysis::new(test_size, ranges, args.jqf);
 	let seed_coverage = fuzz_one(server, &starting_seed);
+    let parent_path = std::env::var("TRACE_PARENTS").ok();
+    let mut parents = vec![u32::MAX]; // seed has no parent
+    let mut queue_to_trace = vec![0u32];
 	let seed_analysis_res = analysis.run(start_cycles as u16, &seed_coverage);
 	if seed_analysis_res.is_invalid {
 		println!("❌ Invalid seed!");
@@ -204,6 +208,7 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 
 	for _ in 0..max_entries {
 		let active_test = q.get_next_test();
+		let parent = queue_to_trace[active_test.id.index()];
 		let mut history = active_test.mutation_history;
 		let mut new_runs : u64 = 0;
 		q.print_entry_summary(active_test.id, &mutations);
@@ -212,14 +217,17 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 			let mut done = false;
 			let mut start = 0;
 			while !done {
-				match server.run(&mut mutator, start) {
+				let before = start;
+				let next = match server.run(&mut mutator, start) {
 					Run::Done(runs, cycles) => {
 						statistics.update_test_count(mutator.id().id, runs as u64, cycles);
 						new_runs += runs as u64;
 						done = true;
+						runs
 					}
-					Run::Yield(ii) => { start = ii; }
-				}
+					Run::Yield(ii) => { start = ii; ii }
+				};
+				if parent_path.is_some() { parents.extend(std::iter::repeat(parent).take((next - before) as usize)); }
 				while let Some(feedback) = server.pop_coverage() {
 					let rr = analysis.run(feedback.cycles, &feedback.data);
 					if rr.is_interesting {
@@ -230,6 +238,7 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 						q.add_new_test(interesting_input, info, rr.new_cov,
 						               !rr.is_invalid, now,
 						               statistics.take_snapshot(), &feedback.data);
+						queue_to_trace.push((feedback.id.index() - 1) as u32);
 					}
 				}
 			}
@@ -254,9 +263,16 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 			q.add_new_test(interesting_input, info, rr.new_cov,
 			               !rr.is_invalid, now,
 			               statistics.take_snapshot(), &feedback.data);
+			queue_to_trace.push((feedback.id.index() - 1) as u32);
 		}
 	}
 	q.save_latest(statistics.take_snapshot());
+	if let Some(path) = parent_path {
+		let mut out = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+		out.write_all(b"FPAR1").unwrap();
+		out.write_all(&(parents.len() as u64).to_le_bytes()).unwrap();
+		for parent in parents { out.write_all(&parent.to_le_bytes()).unwrap(); }
+	}
 
 	// done with the main fuzzing part
 	statistics.done();

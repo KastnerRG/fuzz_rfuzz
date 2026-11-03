@@ -13,6 +13,7 @@ use super::mutation::{MutationInfo, Mutator};
 #[derive(Copy,Clone,Debug,PartialEq,PartialOrd,Default)]
 pub struct TestId(u64);
 impl TestId {
+	pub fn index(&self) -> u64 { self.0 }
 	fn next(&self) -> TestId { TestId(self.0 + 1) }
 }
 
