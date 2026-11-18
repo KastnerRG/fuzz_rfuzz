@@ -14,7 +14,8 @@ use clap::{Arg, App};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::io::Write;
+use std::fs::File;
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 
 mod config;
 mod run;
@@ -31,6 +32,68 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const AUTHOR: &'static str = env!("CARGO_PKG_AUTHORS");
 const FPGA_DIR: &'static str = "/tmp/fpga";
 const WORD_SIZE : usize = 8;
+
+struct LongParentTrace {
+    out: BufWriter<File>,
+    count: u64,
+}
+
+impl LongParentTrace {
+    fn create(path: &str) -> Self {
+        let mut out = BufWriter::new(File::create(path).unwrap());
+        out.write_all(b"FPAR2").unwrap();
+        out.write_all(&0u64.to_le_bytes()).unwrap();
+        out.write_all(&u64::MAX.to_le_bytes()).unwrap(); // seed has no parent
+        LongParentTrace { out, count: 1 }
+    }
+
+    fn append(&mut self, parent: u64, mut cases: usize) {
+        let original = cases;
+        let mut block = [0u8; 8192];
+        for slot in block.chunks_exact_mut(8) {
+            slot.copy_from_slice(&parent.to_le_bytes());
+        }
+        while cases >= 1024 {
+            self.out.write_all(&block).unwrap();
+            cases -= 1024;
+        }
+        self.out.write_all(&block[..cases * 8]).unwrap();
+        self.count += original as u64;
+    }
+
+    fn finish(mut self) {
+        self.out.flush().unwrap();
+        let mut file = self.out.into_inner().unwrap();
+        file.seek(SeekFrom::Start(5)).unwrap();
+        file.write_all(&self.count.to_le_bytes()).unwrap();
+        file.flush().unwrap();
+    }
+}
+
+struct GenerationTrace {
+    out: BufWriter<File>,
+}
+
+impl GenerationTrace {
+    fn create(path: &str) -> Self {
+        let mut out = BufWriter::new(File::create(path).unwrap());
+        out.write_all(b"FGEN1\x01").unwrap(); // input zero is the seed
+        GenerationTrace { out }
+    }
+
+    fn append(&mut self, mutator: u64, mut cases: usize) {
+        let kind = match mutator >> 32 {
+            1..=6 | 100 => 4, 7..=9 => 5, 10..=12 => 6,
+            110 => 7, 150 => 3, _ => 0,
+        };
+        let block = [kind; 8192];
+        while cases >= block.len() {
+            self.out.write_all(&block).unwrap();
+            cases -= block.len();
+        }
+        self.out.write_all(&block[..cases]).unwrap();
+    }
+}
 
 #[derive(Debug)]
 struct Args {
@@ -164,9 +227,15 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 	//println!("ranges:]\n{:?}", ranges);
 	let mut analysis = analysis::Analysis::new(test_size, ranges, args.jqf);
 	let seed_coverage = fuzz_one(server, &starting_seed);
+    let mut generation = std::env::var("TRACE_GEN").ok()
+        .map(|path| GenerationTrace::create(&path));
     let parent_path = std::env::var("TRACE_PARENTS").ok();
-    let mut parents = vec![u32::MAX]; // seed has no parent
-    let mut queue_to_trace = vec![0u32];
+    let long_parents = std::env::var("TRACE_PARENTS_V2").map(|value| value == "1").unwrap_or(false);
+    let mut parent_stream = if long_parents {
+        parent_path.as_ref().map(|path| LongParentTrace::create(path))
+    } else { None };
+    let mut parents = if long_parents { Vec::new() } else { vec![u32::MAX] };
+    let mut queue_to_trace = vec![0u64];
 	let seed_analysis_res = analysis.run(start_cycles as u16, &seed_coverage);
 	if seed_analysis_res.is_invalid {
 		println!("❌ Invalid seed!");
@@ -227,7 +296,14 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 					}
 					Run::Yield(ii) => { start = ii; ii }
 				};
-				if parent_path.is_some() { parents.extend(std::iter::repeat(parent).take((next - before) as usize)); }
+                if let Some(ref mut stream) = generation {
+                    stream.append(mutator.id().id, (next - before) as usize);
+                }
+				if let Some(ref mut stream) = parent_stream {
+                    stream.append(parent, (next - before) as usize);
+                } else if parent_path.is_some() {
+                    parents.extend(std::iter::repeat(parent as u32).take((next - before) as usize));
+                }
 				while let Some(feedback) = server.pop_coverage() {
 					let rr = analysis.run(feedback.cycles, &feedback.data);
 					if rr.is_interesting {
@@ -238,7 +314,7 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 						q.add_new_test(interesting_input, info, rr.new_cov,
 						               !rr.is_invalid, now,
 						               statistics.take_snapshot(), &feedback.data);
-						queue_to_trace.push((feedback.id.index() - 1) as u32);
+						queue_to_trace.push(feedback.id.index() - 1);
 					}
 				}
 			}
@@ -263,11 +339,14 @@ fn fuzzer(args: Args, canceled: Arc<AtomicBool>, config: config::Config,
 			q.add_new_test(interesting_input, info, rr.new_cov,
 			               !rr.is_invalid, now,
 			               statistics.take_snapshot(), &feedback.data);
-			queue_to_trace.push((feedback.id.index() - 1) as u32);
+			queue_to_trace.push(feedback.id.index() - 1);
 		}
 	}
 	q.save_latest(statistics.take_snapshot());
-	if let Some(path) = parent_path {
+	if let Some(mut stream) = generation { stream.out.flush().unwrap(); }
+	if let Some(stream) = parent_stream {
+        stream.finish();
+    } else if let Some(path) = parent_path {
 		let mut out = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
 		out.write_all(b"FPAR1").unwrap();
 		out.write_all(&(parents.len() as u64).to_le_bytes()).unwrap();
